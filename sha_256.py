@@ -149,7 +149,7 @@ class SHA256(SHACalc):
     @staticmethod
     def add32(*ops):
         """
-        Adds two 32-bit integers represented as bytearrays.
+        Adds multiple np.uint32 numbers with modulo 2^32.
         """
         ops_arr = [np.asarray(op, dtype=np.uint32) for op in ops]
         ret = np.add.reduce(ops_arr, dtype=np.uint32)
