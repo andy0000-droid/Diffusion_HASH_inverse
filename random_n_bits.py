@@ -174,6 +174,6 @@ if __name__ == "__main__":
 
     for _ in range(args.iterations):
         generator = GenerateRandom(BIT_LEN)
-        print(f"Iteration: {_ + 1}")
-        _bin, _ = generator.generate_random_bits()
-        print(f"Binary Representation: \n{_bin}\n")
+        # print(f"Iteration: {_ + 1}")
+        # _bin, _ = generator.generate_random_bits()
+        # print(f"Binary Representation: \n{_bin}\n")
