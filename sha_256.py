@@ -139,6 +139,13 @@ class SHA256(SHACalc):
 
         self.block_n = math.ceil((self.message_len + 1 + 64) / self.block_size)
 
+    def reset(self):
+        """각 해시 계산 시작 시 내부 상태 초기화"""
+        self.prev_hash = INIT_HASH.copy()
+        self.hash = None
+        self.message_block = []
+        self.block_n = 0
+
     @staticmethod
     def add32(*ops):
         """
@@ -342,7 +349,6 @@ class ValidateHash:
     A class to validate SHA-256 hashes.
     """
     def __init__(self):
-        self.hashobject = hashlib.sha256()
         self.correct_value = None
         self.implementation = SHA256()
         self.message = None
@@ -354,16 +360,17 @@ class ValidateHash:
         """
         assert message is not None, "Message must be provided."
         assert message_len > 0, "Message length must be positive."
+        h = hashlib.sha256()
         self.message = message
         self.message_len = message_len
-        self.hashobject.update(self.message)
-        self.correct_value = self.hashobject.hexdigest()
+        h.update(self.message)
+        self.correct_value = h.hexdigest()
         print(f"Correct SHA-256 Hash: \n{self.correct_value}")
         for _i in range(0, len(self.correct_value), 8):
             print(f"Chunk {_i // 8}: {self.correct_value[_i:_i + 8]}")
         b = bytes.fromhex(self.correct_value)
         out = np.frombuffer(b, dtype='>u4').astype(np.uint32, copy=True)
-        print(f"out: \n{out}")
+        print(f"Correct HASH: \n{out}")
         return out
 
     def validate_hash(self, input_hash = None, message = None, message_len = -1):
@@ -379,14 +386,16 @@ class ValidateHash:
             _right_value = self.correct_hash(self.message, self.message_len)
             test_hash = self.implementation.hashing(self.message, self.message_len)
 
-        print(f"Test hash: \n{test_hash}")
+        print(f"Generated hash: \n{test_hash}")
+        for _i, _test in enumerate(test_hash):
+            if _test == _right_value[_i]:
+                pass
+            else:
+                print("Hash validation failed.")
+                return False
 
-        if test_hash.all() == _right_value.all():
-            print("Hash validation successful.")
-            return True
-
-        print("Hash validation failed.")
-        return False
+        print("Hash validation successful.")
+        return True
 
 if __name__ == "__main__":
 
@@ -422,8 +431,6 @@ if __name__ == "__main__":
 
     print(f"Clean Directory: {args.clean_dir}")
 
-    sha256 = SHA256()
-    validate_hash = ValidateHash()
     random_generator = GenerateRandom()
 
     try:
@@ -441,6 +448,8 @@ if __name__ == "__main__":
 
     if LENGTH is not None:
         for _ in range(args.iteration):
+            sha256 = SHA256()
+            validate_hash = ValidateHash()
             print(f"Iteration: {_ + 1}")
 
             setattr(random_generator, 'length', LENGTH)
@@ -460,10 +469,13 @@ if __name__ == "__main__":
             print("Correct SHA-256 Hash: ")
             print(f"Validation: {VALID}")
 
-            if not VALID:
-                raise RuntimeError("Hash validation failed.")
+            if VALID:
+                print(f"Hash validation succeeded at iteration {_ + 1}.")
+            else:
+                raise RuntimeError(f"Hash validation failed at iteration {_ + 1}.")
 
     else:
+        sha256 = SHA256()
         setattr(random_generator, 'length', 256)
         *data_256, len_rand_256 = random_generator.generate_random_bits()
         rand_256, bin_256, hex_256 = data_256
