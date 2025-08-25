@@ -214,6 +214,8 @@ class SHA256(SHACalc):
         """
         Step 1: Message Schedule Preparation
         """
+        print("Step 1: Message Schedule Preparation")
+
         w_tmp = []
         for _i in range(64):
             if _i < 16:
@@ -230,13 +232,16 @@ class SHA256(SHACalc):
 
     def step2(self, _):
         """
-        Step 2: Message Compression
+        Step 2: Initialize working variables.
         """
+        print("Step 2: Initialize working variables")
 
     def step3(self, w, in_hash):
         """
-        Step 3: Finalization
+        Step 3: Main compression function loop.
         """
+        print("Step 3: Main compression function loop")
+
         a, b, c, d, e, f, g, h = in_hash
         for _i in range(64):
             t1 = self.add32(h, self.cap_sigma1(e), super().ch(e, f, g), K[_i], w[_i])
@@ -256,6 +261,8 @@ class SHA256(SHACalc):
         """
         Step 4: Finalize the hash value.
         """
+
+        print("Step 4: Finalize the hash value")
         a,b,c,d,e,f,g,h = work
         return [
             self.add32(a, in_hash[0]), self.add32(b, in_hash[1]),
@@ -272,6 +279,9 @@ class SHA256(SHACalc):
         w = []
         try:
             for _i in range(self.block_n):
+                # pylint: disable=line-too-long
+                print(f"\nProcessing {_i + 1} block of {self.block_n} blocks ({_i / self.block_n * 100:.2f}%)")
+                # pylint: enable=line-too-long
                 w = self.step1(_i)
                 self.step2(self.hash)
                 out = self.step3(w, self.prev_hash)
@@ -386,29 +396,16 @@ if __name__ == "__main__":
                         help='Length of random bits to generate (default: 512)')
     parser.add_argument('-e', '--exponentiation', type=int, default=argparse.SUPPRESS,
                         help='2 to the power of <exponentiation> (default: 9)')
-    parser.add_argument('-v', '--validate', action="store_true",
-                        help='Validate the SHA-256 hash')
-    parser.add_argument('-V', '--no-validate', action="store_false",
-                        help='Do not validate the SHA-256 hash')
-    parser.add_argument('-t', '--test', action="store_true",
-                        help='Run tests')
-    parser.add_argument('-T', '--no-test', action="store_false",
-                        help='Do not run tests')
-    parser.set_defaults(test=False, validate=True)
-    gc = parser.add_mutually_exclusive_group()
-    gd = parser.add_mutually_exclusive_group()
+    parser.add_argument('-i', '--iteration', type=int, default=1,
+                        help='Running iterations (default: 1)')
 
+    gc = parser.add_mutually_exclusive_group()
     gc.add_argument('-c', '--clean_dir', action="store_true",
                 dest='clean_dir', help='Directory to clean')
     gc.add_argument('-C', '--no_clean_dir', action="store_false",
                 dest='clean_dir', help='Directory to clean')
-    gd.add_argument('-d', '--debug', dest='debug',
-                    action="store_true", help='Enable debug flag')
-    gd.add_argument('-D', '--no_debug', dest='debug',
-                    action="store_false", help='Disable debug flag')
 
     gc.set_defaults(clean_dir=False)
-    gd.set_defaults(debug=False)
     args = parser.parse_args()
 
     LENGTH = None
@@ -423,10 +420,10 @@ if __name__ == "__main__":
     else:
         pass
 
-    __DEBUG_FLAG__ = args.debug
-    print(__DEBUG_FLAG__)
-    print(args.clean_dir)
+    print(f"Clean Directory: {args.clean_dir}")
 
+    sha256 = SHA256()
+    validate_hash = ValidateHash()
     random_generator = GenerateRandom()
 
     try:
@@ -435,36 +432,37 @@ if __name__ == "__main__":
         print("AttributeError: Object has no attribute 'clear_flag'.")
     random_generator.file_clean()
 
-    sha256 = SHA256()
-    validate_hash = ValidateHash()
+    # pylint: disable=invalid-name
+    rand_m = None
+    bin_m = None
+    hex_m = None
+    len_m = None
+    # pylint: enable=invalid-name
 
     if LENGTH is not None:
-        if args.test:
-            print("Running tests...")
-            # pylint: disable=invalid-name
-            rand_m = ""
-            bin_m = ""
-            hex_m = ""
-            len_m = ""
-            # pylint: enable=invalid-name
-        if not args.test:
+        for _ in range(args.iteration):
+            print(f"Iteration: {_ + 1}")
+
             setattr(random_generator, 'length', LENGTH)
             rand_m, bin_m, hex_m, len_m = random_generator.generate_random_bits()
-        result_hash = sha256.hashing(bin_m, len_m)
-        print("--------------Result--------------")
-        print(f"Input bits ({len_m} bits): \n\\x{hex_m}\n")
-        print("SHA-256 Hash: ")
-        for _i in range(8):
-            print(f"{hex(result_hash[_i])[2:]}",end='')
-        print("\n")
+            result_hash = sha256.hashing(bin_m, len_m)
 
-        if args.validate:
+            print("--------------Result--------------")
+            print(f"Input bits ({len_m} bits): \n\\x{hex_m}\n")
+            print("SHA-256 Hash: ")
+            HEX_DIGEST = ''.join(f'{int(w):08x}' for w in result_hash)
+            print(HEX_DIGEST)
+            print("\n")
+
             print("--------------Validation--------------")
             valid_message = bytes.fromhex(hex_m)
             VALID = validate_hash.validate_hash(result_hash, valid_message, len_m)
             print("Correct SHA-256 Hash: ")
             print(f"Validation: {VALID}")
-        # breakpoint()
+
+            if not VALID:
+                raise RuntimeError("Hash validation failed.")
+
     else:
         setattr(random_generator, 'length', 256)
         *data_256, len_rand_256 = random_generator.generate_random_bits()
