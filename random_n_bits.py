@@ -24,6 +24,7 @@ class GenerateRandom:
         self.hex_n = None
         self.path = os.path.join(os.getcwd(), path)
         self.ts = None
+        self.clear_flag = False
 
         # Ensure the directory exists
         if not os.path.exists(self.path):
@@ -75,6 +76,20 @@ class GenerateRandom:
         """
         return bit_length.to_bytes(BITLEN_LEN, byteorder="big")
 
+    def file_clean(self):
+        """
+        Clean up the generated files.
+        """
+        if self.clear_flag:
+            try:
+                _dir = os.listdir(self.path)
+                for file in _dir:
+                    file_path = os.path.join(self.path, file)
+                    os.remove(file_path)
+                    print(f"Removed file: {file_path}")
+            except IsADirectoryError as e:
+                print(f"Error removing directory: {e}")
+
     def file_io(self, filename: str, ts: bytes = None):
         """
         Write the given data to a binary file.
@@ -87,9 +102,12 @@ class GenerateRandom:
                     f.write(b'\x00' * (16 - pointer % 16))
                 _ts = self.encode_timestamp() if ts is None else ts
                 f.write(_ts)
-                metadata = self.encode_bit_length(self.length)
-                print(f"Metadata: {metadata.hex()}")
-                f.write(metadata)
+
+                _bit_length = self.encode_bit_length(self.length)
+                print(f"Bits Length (dec): {self.length}, {_bit_length}")
+                print(f"Bits Length (hex): {self.length:016x}, {_bit_length.hex()}")
+
+                f.write(_bit_length)
                 f.write(b'\x00' * PAD_LEN)  # Write padding
                 f.write(bytes.fromhex(self.hex_n))  # Write hex data
         except FileNotFoundError as e:
@@ -106,7 +124,7 @@ class GenerateRandom:
 
         self.bin_n = format(self._n, 'b').zfill(self.length)
         print(f"Integer to Binary: \n{self.bin_n}\n")
-
+        self._n = self._n << (8 - (self.length % 8)) if self.length % 8 != 0 else self._n
         self.hex_n = hex(self._n)[2:].zfill(math.ceil(self.length / 4))
         print(f"Integer to Hexadecimal: \n{self.hex_n}\n")
         self.print_hex("Data in Hexadecimal", self.hex_n)
@@ -117,7 +135,7 @@ class GenerateRandom:
 
         self.file_io(f"random_{self.length}_bits.bin")
 
-        return self.bin_n, self.length
+        return self._n, self.bin_n, self.hex_n, self.length
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate random bits and save to a binary file.")
