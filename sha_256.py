@@ -5,7 +5,6 @@ SHA-256 Implementation
 import hashlib
 import math
 import argparse
-import re
 import numpy as np
 from random_n_bits import GenerateRandom
 
@@ -13,7 +12,7 @@ __DEBUG_FLAG__ = False
 
 # Constants
 # SHA-256 use sixty-four constant 32-bit words
-K = [
+K = np.array([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
     0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -22,24 +21,13 @@ K = [
     0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-]
+], dtype=np.uint32)
 
 # Initial Hash value
-INIT_HASH = [
+INIT_HASH = np.array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-]
-
-def print_hex(data: bytearray):
-    """
-    Print the hexadecimal representation of a bytearray.
-    """
-    assert isinstance(data, bytearray), "Input must be a bytearray."
-
-    for i in range(0, len(data), 8):
-        chunk = data[i:i+8]
-        hex_part = " ".join(f"{b:02x}" for b in chunk)
-        print(f"{i:04x}: {hex_part}")
+], dtype=np.uint32)
 
 class SHACalc:
     """
@@ -49,164 +37,117 @@ class SHACalc:
         # Set Properties (bits)
         self.block_size = 512  # 64 bytes
         self.word_size = 32  # 4 bytes
+        self.block_size_bytes = self.block_size // 8
+        self.word_size_bytes = self.word_size // 8
+        self.mask = np.uint32(0xFFFFFFFF)
 
-    def rotr(self, x:bytearray, n:int):
+    def rotr(self, x:np.uint32, n:int):
         """
         Rotate right function for SHA-256.
         """
 
-        assert isinstance(x, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (rotr)."
 
         n = n % self.word_size  # Ensure n is within the word size
-        x = np.array(x, dtype=np.uint32)
-        ret = ((x >> n) | (x << (self.word_size - n))) & 0xFFFFFFFF
+        right = x >> n
+        left = (x << (self.word_size - n)) & self.mask
+        ret = (left | right) & self.mask
         return ret
 
-    def shr(self, x:bytearray, n:int):
+    def shr(self, x:np.uint32, n:int):
         """
         Shift right function for SHA-256.
         """
 
-        assert isinstance(x, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (shr)."
 
         n = n % self.word_size  # Ensure n is within the word size
-
-        x = np.array(x, dtype=np.uint32)
-        ret = (x >> n) & 0xFFFFFFFF
+        ret = (x >> n) & self.mask
 
         return ret
 
-    def rotl(self, x:bytearray, n:int):
-        """
-        Rotate left function for SHA-256.
-        """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
-
-        n = n % self.word_size  # Ensure n is within the word size
-
-        ret = ((x << n) | (x >> (self.word_size - n))) & 0xFFFFFFFF
-        return ret
-
-    def ch(self, x:bytearray, y:bytearray, z:bytearray):
+    def ch(self, x:np.uint32, y:np.uint32, z:np.uint32):
         """
         Ch function for SHA-256.
         """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
-        assert isinstance(y, bytearray), "Input must be a bytearray."
-        assert isinstance(z, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (ch)."
+        assert isinstance(y, np.uint32), "Input must be a np.uint32 (ch)."
+        assert isinstance(z, np.uint32), "Input must be a np.uint32 (ch)."
 
-        x = np.array(x, dtype=np.uint32)
-        y = np.array(y, dtype=np.uint32)
-        z = np.array(z, dtype=np.uint32)
-
-        ret = (x & y) ^ (~x & z)
+        ret = ((x & y) ^ (~x & z)) & self.mask
         return ret
 
-    def maj(self, x:bytearray, y:bytearray, z:bytearray):
+    def maj(self, x:np.uint32, y:np.uint32, z:np.uint32):
         """
         Maj function for SHA-256.
         """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
-        assert isinstance(y, bytearray), "Input must be a bytearray."
-        assert isinstance(z, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (maj)."
+        assert isinstance(y, np.uint32), "Input must be a np.uint32 (maj)."
+        assert isinstance(z, np.uint32), "Input must be a np.uint32 (maj)."
 
-        x = np.array(x, dtype=np.uint32)
-        y = np.array(y, dtype=np.uint32)
-        z = np.array(z, dtype=np.uint32)
-
-        ret = (x & y) ^ (x & z) ^ (y & z)
+        ret = ((x & y) ^ (x & z) ^ (y & z)) & self.mask
         return ret
 
-    def sigma0(self, x:bytearray):
+    def sigma0(self, x:np.uint32):
         """
         Sigma0 function for SHA-256.
         """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (sigma0)."
 
-        x = np.array(x, dtype=np.uint32)
-
-        ret = self.rotr(x, 7) ^ self.rotr(x, 18) ^ self.shr(x, 3)
+        ret = (self.rotr(x, 7) ^ self.rotr(x, 18) ^ self.shr(x, 3)) & self.mask
         return ret
 
-    def sigma1(self, x:bytearray):
+    def sigma1(self, x:np.uint32):
         """
         Sigma1 function for SHA-256.
         """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (sigma1)."
 
-        x = np.array(x, dtype=np.uint32)
-
-        ret = self.rotr(x, 17) ^ self.rotr(x, 19) ^ self.shr(x, 10)
+        ret = (self.rotr(x, 17) ^ self.rotr(x, 19) ^ self.shr(x, 10)) & self.mask
         return ret
 
-    def cap_sigma0(self, x:bytearray):
+    def cap_sigma0(self, x:np.uint32):
         """
         CapSigma0 function for SHA-256.
         """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (cap_sigma0)."
 
-        x = np.array(x, dtype=np.uint32)
-
-        ret = self.rotr(x, 2) ^ self.rotr(x, 13) ^ self.rotr(x, 22)
+        ret = (self.rotr(x, 2) ^ self.rotr(x, 13) ^ self.rotr(x, 22)) & self.mask
         return ret
 
-    def cap_sigma1(self, x:bytearray):
+    def cap_sigma1(self, x:np.uint32):
         """
         CapSigma1 function for SHA-256.
         """
-        assert isinstance(x, bytearray), "Input must be a bytearray."
+        assert isinstance(x, np.uint32), "Input must be a np.uint32 (cap_sigma1)."
 
-        x = np.array(x, dtype=np.uint32)
-        ret = self.rotr(x, 6) ^ self.rotr(x, 11) ^ self.shr(x, 25)
+        ret = (self.rotr(x, 6) ^ self.rotr(x, 11) ^ self.rotr(x, 25)) & self.mask
         return ret
 
 class SHA256(SHACalc):
     """
     Implementation of the SHA-256 hash function.
     """
-    def __init__(self, message = None, message_len = -1):
+    def __init__(self):
         super().__init__()
-        self.block_size_bytes = self.block_size // 8
-        self.word_size_bytes = self.word_size // 8
-        assert message is not None, "Message must be provided."
-        assert message_len > 0, "Message length must be positive."
-
-        SHA256.init_hash = INIT_HASH.copy()
-        SHA256.k = K.copy()
-        self.message = message # in binary string
-        self.message_len = message_len # bits length
-        self.hash = SHA256.init_hash.copy()
+        self.prev_hash = INIT_HASH.copy()
+        self.message = None
+        self.message_len = -1
+        self.hash = None
 
         self.message_block = []
-
 
         self.block_n = math.ceil((self.message_len + 1 + 64) / self.block_size)
 
     @staticmethod
-    def add32(x1:bytearray, x2:bytearray, x3:bytearray = None, 
-            x4:bytearray = None, x5:bytearray = None):
+    def add32(*ops):
         """
         Adds two 32-bit integers represented as bytearrays.
         """
+        ops_arr = [np.asarray(op, dtype=np.uint32) for op in ops]
+        ret = np.add.reduce(ops_arr, dtype=np.uint32)
 
-        x_int = int.from_bytes(x1, 'big')
-        y_int = int.from_bytes(x2, 'big')
-        ret = (x_int + y_int) & 0xFFFFFFFF
-        ret_byte = ret.to_bytes(4, 'big')
-
-        if x3 is not None:
-            ret = (ret + x3) & 0xFFFFFFFF
-            ret_byte = ret.to_bytes(4, 'big')
-
-        if x4 is not None:
-            ret = (ret + x4) & 0xFFFFFFFF
-            ret_byte = ret.to_bytes(4, 'big')
-
-        if x5 is not None:
-            ret = (ret + x5) & 0xFFFFFFFF
-            ret_byte = ret.to_bytes(4, 'big')
-
-        return ret_byte
+        return ret
 
     def pad(self):
         """
@@ -215,24 +156,28 @@ class SHA256(SHACalc):
         self.message_len: 원본 비트 길이 l
         """
 
-        padded_len = 512 * self.block_n
-        self.message = self.message + '1'
+        l = self.message_len
+        assert set(self.message) <= {'0', '1'}
 
-        for _ in range(padded_len - self.message_len - 1 - 64):
-            self.message = self.message + '0'
-        # type(self.message) = str
+        # 1) k 계산: (l + 1 + k) ≡ 448 (mod 512)
+        k = (448 - (l + 1)) % 512
 
-        byte_message = np.ndarray([], dtype=np.uint32)
-        for _ in range(0, padded_len - 64, 8):
-            b = self.message[_:_+8]
-            v = int(b, 2)
-            byte_message = np.append(byte_message, v)
+        # 2) 패딩 비트 문자열 구성: 1비트 + k개의 0 + 64비트 길이
+        padded_bits = self.message + '1' + ('0' * k) + format(l, '064b')
+        # 총 길이는 512의 배수
 
-        self.message = byte_message.copy()
+        # 3) 비트 문자열 -> uint8 바이트
+        bits = np.frombuffer(padded_bits.encode('ascii'), dtype=np.uint8) - ord('0')
+        u8   = np.packbits(bits, bitorder='big')  # MSB-first로 압축
 
-        byte_len = np.ndarray(self.message_len.to_bytes(8, 'big'), dtype=np.uint64)
-        #self.message = self.message + byte_len
-        breakpoint()
+        # 4) 바이트 -> uint32 워드(빅엔디안)
+        assert (u8.size % 4) == 0
+        words_be = np.frombuffer(u8.tobytes(), dtype='>u4')  # shape: (#blocks*16,)
+
+        # 5) 상태에 저장
+        self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
+        self.block_n = words_be.size // 16                    # 512비트 블록 수
+        # breakpoint()
 
 
     def parse(self):
@@ -240,18 +185,13 @@ class SHA256(SHACalc):
         Parsing function for SHA-256.
         """
         for i in range(self.block_n):
-            tmp = []
-            for j in range(0, self.block_size_bytes, self.word_size_bytes):
-                w = self.message[i * self.block_size_bytes + j:
-                                i * self.block_size_bytes + j + self.word_size_bytes]
-                tmp.append(w)
-            self.message_block.append(tmp)
+            self.message_block.append(self.message[i * 16:(i + 1) * 16])
 
     def preprocess(self):
         """
         Padding & Parsing for SHA-256.
         """
-
+        self.message_block = [] 
         assert self.message is not None, "Message must be set before preprocessing."
         assert self.message_len > 0, "Message length must be positive."
         assert isinstance(self.message, str), "Message must be a string."
@@ -259,13 +199,15 @@ class SHA256(SHACalc):
         self.pad()
         self.parse()
         print("Preprocessing complete. Message blocks: ")
-        for block in self.message_block:
-            for i, word in enumerate(block):
-                if i % 8 == 0:
+        for i, block in enumerate(self.message_block):
+            print(f"Block {i}:")
+            for j, word in enumerate(block):
+                if j % 8 == 0 and j != 0:
                     print()
-                print(f"\\x{word.hex()}", end=' ')
+                print(f"\\x{hex(word):010}", end=' ')
             print()
-        breakpoint()
+        print()
+        # breakpoint()
         return True
 
     def step1(self, iteration):
@@ -279,18 +221,17 @@ class SHA256(SHACalc):
             else:
                 s0 = super().sigma0(w_tmp[_i - 15])
                 s1 = super().sigma1(w_tmp[_i - 2])
-                wt_7 = self.message_block[iteration][_i - 7]
-                wt_16 = self.message_block[iteration][_i - 16]
+                wt_7 = w_tmp[_i - 7]
+                wt_16 = w_tmp[_i - 16]
                 _tmp = self.add32(s1, wt_7, s0, wt_16)
                 w_tmp.append(_tmp)
+        # breakpoint()
         return w_tmp
 
-    def step2(self, in_hash):
+    def step2(self, _):
         """
         Step 2: Message Compression
         """
-        ret_hash = in_hash.copy()
-        return ret_hash
 
     def step3(self, w, in_hash):
         """
@@ -298,78 +239,144 @@ class SHA256(SHACalc):
         """
         a, b, c, d, e, f, g, h = in_hash
         for _i in range(64):
-            t1 = self.add32(h, self.cap_sigma1(e), self.ch(e, f, g), K[_i], w[_i])
-        pass
+            t1 = self.add32(h, self.cap_sigma1(e), super().ch(e, f, g), K[_i], w[_i])
+            t2 = self.add32(self.cap_sigma0(a), super().maj(a, b, c))
+            h = g
+            g = f
+            f = e
+            e = self.add32(d, t1)
+            d = c
+            c = b
+            b = a
+            a = self.add32(t1, t2)
+        # breakpoint()
+        return [a, b, c, d, e, f, g, h]
 
-    def step4(self, iteration):
+    def step4(self, work, in_hash):
         """
-        Step 4: Output
+        Step 4: Finalize the hash value.
         """
-        pass
+        a,b,c,d,e,f,g,h = work
+        return [
+            self.add32(a, in_hash[0]), self.add32(b, in_hash[1]),
+            self.add32(c, in_hash[2]), self.add32(d, in_hash[3]),
+            self.add32(e, in_hash[4]), self.add32(f, in_hash[5]),
+            self.add32(g, in_hash[6]), self.add32(h, in_hash[7]),
+        ]
+
 
     def compute_hash(self):
         """
         Compute the SHA-256 hash of the input message.
         """
         w = []
-        for i in range(self.block_n):
-            w = self.step1(i)
-            self.hash = self.step2(self.hash)
-            self.step3(w, self.hash)
-            self.hash = self.step4(i)
+        try:
+            for _i in range(self.block_n):
+                w = self.step1(_i)
+                self.step2(self.hash)
+                out = self.step3(w, self.prev_hash)
+                self.hash = self.step4(out, self.prev_hash)
+                self.prev_hash = self.hash
 
-        # Hash computation logic goes here
-        return False
-        breakpoint()
-        return True
+            # breakpoint()
+            return True
 
-    def hashing(self) -> bytearray:
+        # pylint: disable=broad-exception-caught
+        except Exception as e:
+            print(f"Error during hash computation: {e}")
+            return False
+
+        # pylint: enable=broad-exception-caught
+
+    def finalize(self):
+        """
+        Finalize the hash computation and return the final hash value.
+        """
+        # breakpoint()
+
+        a,b,c,d,e,f,g,h = (np.uint32(x) for x in self.hash)
+        out = np.array([a,b,c,d,e,f,g,h], dtype=np.uint32)
+        return out
+
+    def hashing(self, message = None, message_len = -1) -> bytearray:
         """
         Generate the SHA-256 hash for the given message.
         """
+        assert message is not None, "Message must be provided."
+        assert message_len > 0, "Message length must be positive."
+
+        self.message = message # in binary string
+        self.message_len = message_len
+
         preprocess_success = False
         compute_success = False
         success = False
 
         preprocess_success = self.preprocess()
+        print("Preprocessing successful")
+        # breakpoint()
         compute_success = self.compute_hash()
+        print("Computation successful")
 
         if preprocess_success and compute_success:
             success = True
+            result = self.finalize()
+            return result
 
         if not success:
             raise RuntimeError("Hash computation failed.")
-
-        return self.hash
+        return None
 
 class ValidateHash:
     """
     A class to validate SHA-256 hashes.
     """
-    def __init__(self, message, message_len):
+    def __init__(self):
         self.hashobject = hashlib.sha256()
         self.correct_value = None
-        self.implementation = SHA256(message, message_len)
+        self.implementation = SHA256()
         self.message = None
+        self.message_len = -1
 
-    def correct_hash(self, message):
+    def correct_hash(self, message, message_len):
         """
         Compute the correct SHA-256 hash for the given message.
         """
+        assert message is not None, "Message must be provided."
+        assert message_len > 0, "Message length must be positive."
         self.message = message
+        self.message_len = message_len
         self.hashobject.update(self.message)
-        hex_dig = self.hashobject.hexdigest()
-        print(hex_dig)  # Should print a 64-character hexadecimal string
-        self.correct_value = hex_dig
+        self.correct_value = self.hashobject.hexdigest()
+        print(f"Correct SHA-256 Hash: \n{self.correct_value}")
+        for _i in range(0, len(self.correct_value), 8):
+            print(f"Chunk {_i // 8}: {self.correct_value[_i:_i + 8]}")
+        b = bytes.fromhex(self.correct_value)
+        out = np.frombuffer(b, dtype='>u4').astype(np.uint32, copy=True)
+        print(f"out: \n{out}")
+        return out
 
-        return hex_dig
-
-    def validate_hash(self, message):
+    def validate_hash(self, input_hash = None, message = None, message_len = -1):
         """
         Validate the SHA-256 hash of the given message.
         """
-        implement_hash = self.implementation.hashing()
-        return implement_hash == self.correct_value
+
+        print(f"Message: \n{message}")
+        if input_hash is not None:
+            _right_value = self.correct_hash(message, message_len)
+            test_hash = input_hash
+        else:
+            _right_value = self.correct_hash(self.message, self.message_len)
+            test_hash = self.implementation.hashing(self.message, self.message_len)
+
+        print(f"Test hash: \n{test_hash}")
+
+        if test_hash.all() == _right_value.all():
+            print("Hash validation successful.")
+            return True
+
+        print("Hash validation failed.")
+        return False
 
 if __name__ == "__main__":
 
@@ -383,20 +390,25 @@ if __name__ == "__main__":
                         help='Validate the SHA-256 hash')
     parser.add_argument('-V', '--no-validate', action="store_false",
                         help='Do not validate the SHA-256 hash')
-    c = parser.add_mutually_exclusive_group()
-    d = parser.add_mutually_exclusive_group()
+    parser.add_argument('-t', '--test', action="store_true",
+                        help='Run tests')
+    parser.add_argument('-T', '--no-test', action="store_false",
+                        help='Do not run tests')
+    parser.set_defaults(test=False, validate=True)
+    gc = parser.add_mutually_exclusive_group()
+    gd = parser.add_mutually_exclusive_group()
 
-    c.add_argument('-c', '--clean_dir', action="store_true",
+    gc.add_argument('-c', '--clean_dir', action="store_true",
                 dest='clean_dir', help='Directory to clean')
-    c.add_argument('-C', '--no_clean_dir', action="store_false",
+    gc.add_argument('-C', '--no_clean_dir', action="store_false",
                 dest='clean_dir', help='Directory to clean')
-    d.add_argument('-d', '--debug', dest='debug',
+    gd.add_argument('-d', '--debug', dest='debug',
                     action="store_true", help='Enable debug flag')
-    d.add_argument('-D', '--no_debug', dest='debug',
+    gd.add_argument('-D', '--no_debug', dest='debug',
                     action="store_false", help='Disable debug flag')
 
-    c.set_defaults(clean_dir=False)
-    d.set_defaults(debug=False)
+    gc.set_defaults(clean_dir=False)
+    gd.set_defaults(debug=False)
     args = parser.parse_args()
 
     LENGTH = None
@@ -423,30 +435,39 @@ if __name__ == "__main__":
         print("AttributeError: Object has no attribute 'clear_flag'.")
     random_generator.file_clean()
 
-    setattr(random_generator, 'length', 256)
-    *data_256, len_rand_256 = random_generator.generate_random_bits()
-    # setattr(random_generator, 'length', 447)
-    # *data_447, len_rand_447 = random_generator.generate_random_bits()
-    # setattr(random_generator, 'length', 448)
-    # *data_448, len_rand_448 = random_generator.generate_random_bits()
-    # setattr(random_generator, 'length', 512)
-    # *data_512, len_rand_512 = random_generator.generate_random_bits()
-
-    rand_256, bin_256, hex_256 = data_256
-    # rand_447, bin_447, hex_447 = data_447
-    # rand_448, bin_448, hex_448 = data_448
-    # rand_512, bin_512, hex_512 = data_512
-
-    print(f"256 bits: {rand_256}")
-    # print(f"512 bits: {rand_512}")
-    # print(f"447 bits: {rand_447}")
-    # print(f"448 bits: {rand_448}")
-
-    sha256 = SHA256(bin_256, len_rand_256)
+    sha256 = SHA256()
+    validate_hash = ValidateHash()
 
     if LENGTH is not None:
-        setattr(random_generator, 'length', LENGTH)
-        rand_m, bin_m, hex_m, len_m = random_generator.generate_random_bits()
-        res = setattr(sha256, bin_m, LENGTH)
+        if args.test:
+            print("Running tests...")
+            # pylint: disable=invalid-name
+            rand_m = ""
+            bin_m = ""
+            hex_m = ""
+            len_m = ""
+            # pylint: enable=invalid-name
+        if not args.test:
+            setattr(random_generator, 'length', LENGTH)
+            rand_m, bin_m, hex_m, len_m = random_generator.generate_random_bits()
+        result_hash = sha256.hashing(bin_m, len_m)
+        print("--------------Result--------------")
+        print(f"Input bits ({len_m} bits): \n\\x{hex_m}\n")
+        print("SHA-256 Hash: ")
+        for _i in range(8):
+            print(f"{hex(result_hash[_i])[2:]}",end='')
+        print("\n")
+
+        if args.validate:
+            print("--------------Validation--------------")
+            valid_message = bytes.fromhex(hex_m)
+            VALID = validate_hash.validate_hash(result_hash, valid_message, len_m)
+            print("Correct SHA-256 Hash: ")
+            print(f"Validation: {VALID}")
+        # breakpoint()
     else:
-        sha256.hashing()
+        setattr(random_generator, 'length', 256)
+        *data_256, len_rand_256 = random_generator.generate_random_bits()
+        rand_256, bin_256, hex_256 = data_256
+        print(f"256 bits: {rand_256}")
+        sha256.hashing(bin_256, len_rand_256)
