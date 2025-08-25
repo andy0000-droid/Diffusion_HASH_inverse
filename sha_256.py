@@ -446,6 +446,10 @@ if __name__ == "__main__":
     len_m = None
     # pylint: enable=invalid-name
 
+    # TODO
+    # Add file output for the generated hashes
+    # Add file output for intermediate values while processing
+
     if LENGTH is not None:
         for _ in range(args.iteration):
             sha256 = SHA256()
