@@ -28,7 +28,6 @@ INIT_HASH = np.array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
 ], dtype=np.uint32)
-
 class SHACalc:
     """
     Base class for SHA hash calculations.
@@ -158,13 +157,12 @@ class SHA256(SHACalc):
 
     def pad(self):
         """
-        SHA-256 padding (bit-string -> uint32 words, big-endian)
-        self.message: '0'/'1'로만 이루어진 비트 문자열
+        SHA-256 padding (bytearray -> uint32 words, big-endian)
+        self.message: bytearray
         self.message_len: 원본 비트 길이 l
         """
 
         l = self.message_len
-        assert set(self.message) <= {'0', '1'}
 
         # 1) k 계산: (l + 1 + k) ≡ 448 (mod 512)
         k = (448 - (l + 1)) % 512
@@ -186,7 +184,6 @@ class SHA256(SHACalc):
         self.block_n = words_be.size // 16                    # 512비트 블록 수
         # breakpoint()
 
-
     def parse(self):
         """
         Parsing function for SHA-256.
@@ -198,10 +195,10 @@ class SHA256(SHACalc):
         """
         Padding & Parsing for SHA-256.
         """
-        self.message_block = [] 
+        self.message_block = []
         assert self.message is not None, "Message must be set before preprocessing."
         assert self.message_len > 0, "Message length must be positive."
-        assert isinstance(self.message, str), "Message must be a string."
+        assert isinstance(self.message, (bytearray, bytes)), "Message must be a bytearray."
 
         self.pad()
         self.parse()
@@ -234,7 +231,7 @@ class SHA256(SHACalc):
                 wt_16 = w_tmp[_i - 16]
                 _tmp = self.add32(s1, wt_7, s0, wt_16)
                 w_tmp.append(_tmp)
-        # breakpoint()
+
         return w_tmp
 
     def step2(self, _):
@@ -277,7 +274,6 @@ class SHA256(SHACalc):
             self.add32(e, in_hash[4]), self.add32(f, in_hash[5]),
             self.add32(g, in_hash[6]), self.add32(h, in_hash[7]),
         ]
-
 
     def compute_hash(self):
         """
@@ -397,6 +393,16 @@ class ValidateHash:
         print("Hash validation successful.")
         return True
 
+def main(length, iteration=1, message=None):
+    """
+    Main function to execute the SHA-256 hash generation and validation.
+    """
+    assert length > 0, "Length must be positive."
+    assert iteration > 0, "Iteration count must be positive."
+    assert message is not None, "Message must be provided."
+
+
+
 if __name__ == "__main__":
 
     # Argument parsing
@@ -407,6 +413,12 @@ if __name__ == "__main__":
                         help='2 to the power of <exponentiation> (default: 9)')
     parser.add_argument('-i', '--iteration', type=int, default=1,
                         help='Running iterations (default: 1)')
+    gm = parser.add_mutually_exclusive_group()
+    gm.add_argument('-m', '--message', action="store_true",
+                    dest='message', help='Message input mode')
+    gm.add_argument('-b', '--bit', action="store_false",
+                    dest='message', help='Bit string input mode')
+    gm.set_defaults(message=True)
 
     gc = parser.add_mutually_exclusive_group()
     gc.add_argument('-c', '--clean_dir', action="store_true",
@@ -458,7 +470,8 @@ if __name__ == "__main__":
 
             setattr(random_generator, 'length', LENGTH)
             rand_m, bin_m, hex_m, len_m = random_generator.generate_random_bits()
-            result_hash = sha256.hashing(bin_m, len_m)
+            in_message = bytes.fromhex(hex_m)
+            result_hash = sha256.hashing(in_message, len_m)
 
             print("--------------Result--------------")
             print(f"Input bits ({len_m} bits): \n\\x{hex_m}\n")
