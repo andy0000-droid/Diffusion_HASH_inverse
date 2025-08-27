@@ -12,19 +12,35 @@ Message Digest Size (bits): 256
 ```
 Diffusion_HASH_inverse
 ├─ .python-version
-├─ Data
-│  ├─ random_1024_bits.bin
-│  ├─ random_1048576_bits.bin
-│  ├─ random_1073741824_bits.bin
-│  ├─ random_32768_bits.bin
-│  ├─ random_33554432_bits.bin
-│  └─ random_512_bits.bin
 ├─ README.md
-├─ Res
-├─ diffusion_test.py
-├─ random_n_bits.py
-├─ sha_256.ipynb
-├─ sha_256.py
-└─ utils
+├─ data
+│  └─ binary
+│     ├─ random_1024_bits.bin
+│     ├─ random_32_bits.bin
+│     ├─ random_4096_bits.bin
+│     └─ random_512_bits.bin
+├─ notebooks
+│  └─ sha_256.ipynb
+├─ output
+├─ pyproject.toml
+├─ src
+│  ├─ diffusion_hash_inv
+│  │  ├─ __init__.py
+│  │  ├─ generator
+│  │  │  ├─ Password_rule.md
+│  │  │  ├─ __init__.py
+│  │  │  ├─ nist_pwgen_utf8.py
+│  │  │  ├─ random_n_bits.py
+│  │  │  └─ random_n_char.py
+│  │  ├─ hashing
+│  │  │  ├─ __init__.py
+│  │  │  └─ sha_256.py
+│  │  └─ utils
+│  │     ├─ __init__.py
+│  │     ├─ file_io.py
+│  │     └─ project_root.py
+│  └─ diffusion_test.py
+└─ tests
+   └─ test.py
 
 ```
