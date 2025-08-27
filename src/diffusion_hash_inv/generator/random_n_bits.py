@@ -4,27 +4,41 @@ Generate 512-bit random number and save it as binary file
 
 from secrets import randbits
 import argparse
-import os
 import math
 import sys
+from pathlib import Path
+def get_project_root(marker_files=("pyproject.toml", ".git")) -> Path:
+    """
+    Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
+    marker_files 중 하나라도 있으면 거기를 루트로 간주.
+    """
+    current = Path.cwd().resolve()  # notebook에서는 cwd 기준
+    for parent in [current, *current.parents]:
+        if any((parent / marker).exists() for marker in marker_files):
+            return parent
+    raise FileNotFoundError("프로젝트 루트를 찾을 수 없습니다.")
+def add_src_to_path():
+    """프로젝트 루트 밑의 src/를 sys.path에 자동 추가"""
+    root = get_project_root()
+    src = root / "src"
 
-project_root = os.path.abspath(os.path.dirname(__file__))
-util_path = os.path.join(project_root, "utils")
-if util_path not in os.sys.path:
-    sys.path.append(util_path)
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    return src
+
+add_src_to_path()
 
 try:
-    from file_io import FILEio
-
+    from diffusion_hash_inv.utils import FileIO
 except ImportError as e:
-    print(f"Error importing file_io: {e}")
+    print(f"Error importing FileIO: {e}")
 
-class GenerateRandom(FILEio):
+class GenerateRandom(FileIO):
     """
     Generate a random number of specified bit length.
     """
     def __init__(self, clear_flag = False, verbose_flag = True):
-        super().__init__("binary")
+        super().__init__()
         print(f"Flags - Clear: {clear_flag}, Verbose: {verbose_flag}\n")
         if clear_flag:
             print("Clearing generated files...")
@@ -78,7 +92,6 @@ class GenerateRandom(FILEio):
         """
         Generate a random 512-bit number and return its hexadecimal and binary representations.
         """
-        timestamp = super().encode_timestamp()
 
         _n = randbits(length)
         _length = math.ceil(length / 8)
@@ -92,7 +105,7 @@ class GenerateRandom(FILEio):
             self.print_bin("Data in Binary", bytes_n)
             print(f"Binary length in Bytes: \n{len(bytes_n)}\n") # type: str
 
-        f_w, _ = self.file_io(f"random_{length}_bits.bin", timestamp)
+        f_w, _ = self.file_io(f"random_{length}_bits.bin")
         f_w((bytes_n, length))
 
         return bytes_n

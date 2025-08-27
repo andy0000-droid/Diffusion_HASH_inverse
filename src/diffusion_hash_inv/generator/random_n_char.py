@@ -6,22 +6,17 @@ Password Generator
 import unicodedata
 from secrets import choice
 import argparse
-import os
 import string
 import math
-import sys
-
-project_root = os.path.abspath(os.path.dirname(__file__))
-util_path = os.path.join(project_root, "utils")
-if util_path not in os.sys.path:
-    sys.path.append(util_path)
+from diffusion_hash_inv.utils.project_root import add_src_to_path
+add_src_to_path()
 
 try:
-    from file_io import FILEio
+    from diffusion_hash_inv.utils import FileIO
 except ImportError as e:
-    print(f"Error importing FILEio: {e}")
+    print(f"Error importing FileIO: {e}")
 
-class GenerateRandomNChar(FILEio):
+class GenerateRandomNChar(FileIO):
     """
     Generate a random string of N characters.
     """

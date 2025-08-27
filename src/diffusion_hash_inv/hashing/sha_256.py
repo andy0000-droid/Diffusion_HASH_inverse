@@ -2,11 +2,41 @@
 SHA-256 Implementation
 """
 
+# TODO
+# Add file output for the generated hashes
+# Add file output for intermediate values while processing
+
 import hashlib
 import math
 import argparse
+import os
+import sys
+
 import numpy as np
-from random_n_bits import GenerateRandom
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+util_path = os.path.join(project_root, "utils")
+if util_path not in os.sys.path:
+    sys.path.append(util_path)
+
+gen_path = os.path.join(project_root, "generator")
+if gen_path not in os.sys.path:
+    sys.path.append(gen_path)
+
+try:
+    from random_n_bits import GenerateRandom
+except ImportError as e:
+    print(f"Error importing GenerateRandom: {e}")
+
+try:
+    from random_n_char import GenerateRandomNChar
+except ImportError as e:
+    print(f"Error importing GenerateRandomNChar: {e}")
+
+try:
+    from file_io import FILEio
+except ImportError as e:
+    print(f"Error importing FILEio: {e}")
 
 __DEBUG_FLAG__ = False
 
@@ -413,20 +443,27 @@ if __name__ == "__main__":
                         help='2 to the power of <exponentiation> (default: 9)')
     parser.add_argument('-i', '--iteration', type=int, default=1,
                         help='Running iterations (default: 1)')
+
+    gv = parser.add_mutually_exclusive_group()
+    gv.add_argument('-v', '--verbose', action='store_true', dest='verbose',
+                    help='Enable verbose output')
+    gv.add_argument('-q', '--quiet', action='store_false', dest='verbose',
+                    help='Suppress output')
+    parser.set_defaults(verbose=True)
+
     gm = parser.add_mutually_exclusive_group()
     gm.add_argument('-m', '--message', action="store_true",
                     dest='message', help='Message input mode')
     gm.add_argument('-b', '--bit', action="store_false",
                     dest='message', help='Bit string input mode')
-    gm.set_defaults(message=True)
+    parser.set_defaults(message=True)
 
     gc = parser.add_mutually_exclusive_group()
-    gc.add_argument('-c', '--clean_dir', action="store_true",
-                dest='clean_dir', help='Directory to clean')
-    gc.add_argument('-C', '--no_clean_dir', action="store_false",
-                dest='clean_dir', help='Directory to clean')
-
-    gc.set_defaults(clean_dir=False)
+    gc.add_argument('-c', '--clear', action='store_true',
+                    dest='clear', help='Clear generated files')
+    gc.add_argument('-C', '--no-clear', action='store_true', dest='clear',
+                    help='Do not clear generated files (default)')
+    parser.set_defaults(clear=False)
     args = parser.parse_args()
 
     LENGTH = None
@@ -441,40 +478,27 @@ if __name__ == "__main__":
     else:
         pass
 
-    print(f"Clean Directory: {args.clean_dir}")
-
-    random_generator = GenerateRandom()
-
-    try:
-        setattr(random_generator, 'clear_flag', args.clean_dir)
-    except AttributeError:
-        print("AttributeError: Object has no attribute 'clear_flag'.")
-    random_generator.file_clean()
+    random_generator = GenerateRandom(args.clear, args.verbose)
+    sha256 = SHA256()
+    validate_hash = ValidateHash()
 
     # pylint: disable=invalid-name
     rand_m = None
     bin_m = None
     hex_m = None
-    len_m = None
     # pylint: enable=invalid-name
-
-    # TODO
-    # Add file output for the generated hashes
-    # Add file output for intermediate values while processing
 
     if LENGTH is not None:
         for _ in range(args.iteration):
-            sha256 = SHA256()
-            validate_hash = ValidateHash()
+
             print(f"Iteration: {_ + 1}")
 
             setattr(random_generator, 'length', LENGTH)
-            rand_m, bin_m, hex_m, len_m = random_generator.generate_random_bits()
-            in_message = bytes.fromhex(hex_m)
-            result_hash = sha256.hashing(in_message, len_m)
+            byte_m = random_generator.generate_random_bits()
+            result_hash = sha256.hashing(byte_m, len(byte_m) * 8)
 
             print("--------------Result--------------")
-            print(f"Input bits ({len_m} bits): \n\\x{hex_m}\n")
+            print(f"Input bits ({len(byte_m) * 8} bits): \n\\x{byte_m.hex()}\n")
             print("SHA-256 Hash: ")
             HEX_DIGEST = ''.join(f'{int(w):08x}' for w in result_hash)
             print(HEX_DIGEST)
@@ -482,7 +506,7 @@ if __name__ == "__main__":
 
             print("--------------Validation--------------")
             valid_message = bytes.fromhex(hex_m)
-            VALID = validate_hash.validate_hash(result_hash, valid_message, len_m)
+            VALID = validate_hash.validate_hash(result_hash, valid_message, len(byte_m) * 8)
             print("Correct SHA-256 Hash: ")
             print(f"Validation: {VALID}")
 
