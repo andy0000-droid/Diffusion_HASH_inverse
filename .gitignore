@@ -1,5 +1,15 @@
-.vscode
-.env
-*.pyc
+# venv
+.venv/
+venv/
+
+# pycache
 __pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Etc
+.vscode/
 .DS_Store
+.env
