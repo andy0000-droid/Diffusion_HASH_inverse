@@ -8,7 +8,27 @@ from secrets import choice
 import argparse
 import string
 import math
-from diffusion_hash_inv.utils.project_root import add_src_to_path
+import sys
+from pathlib import Path
+def get_project_root(marker_files=("pyproject.toml", ".git")) -> Path:
+    """
+    Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
+    marker_files 중 하나라도 있으면 거기를 루트로 간주.
+    """
+    current = Path.cwd().resolve()  # notebook에서는 cwd 기준
+    for parent in [current, *current.parents]:
+        if any((parent / marker).exists() for marker in marker_files):
+            return parent
+    raise FileNotFoundError("프로젝트 루트를 찾을 수 없습니다.")
+def add_src_to_path():
+    """프로젝트 루트 밑의 src/를 sys.path에 자동 추가"""
+    root = get_project_root()
+    src = root / "src"
+
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    return src
+
 add_src_to_path()
 
 try:
@@ -21,7 +41,7 @@ class GenerateRandomNChar(FileIO):
     Generate a random string of N characters.
     """
     def __init__(self, clear_flag=False, verbose_flag=True):
-        super().__init__("character")
+        super().__init__()
         print(f"Flags - Clear: {clear_flag}, Verbose: {verbose_flag}\n")
         if clear_flag:
             print("Clearing generated files...")
@@ -41,7 +61,15 @@ class GenerateRandomNChar(FileIO):
             f"Alphabet List Length: {len(self.alphabet)}\n"
         )
         alphabet_list = f"Alphabet List: {self.alphabet}"
-        print(description + alphabet_info + alphabet_list)
+        print(description + alphabet_info + alphabet_list, end="\n\n")
+
+    @staticmethod
+    def calc_entropy(char_len: int, _pwd: str) -> float:
+        """
+        Calculate the entropy of the generated password.
+        """
+        entropy = char_len * math.log2(len(_pwd))
+        return entropy
 
     def generate(self, length: int = 16) -> str:
         """
@@ -58,13 +86,15 @@ class GenerateRandomNChar(FileIO):
         s = unicodedata.normalize(form.upper(), s)
         return s.encode("utf-8")
 
-    @staticmethod
-    def calc_entropy(char_len: int, _pwd: str) -> float:
+    def main(self, length: int = 16):
         """
-        Calculate the entropy of the generated password.
+        Main function to generate random strings and display their entropy.
         """
-        entropy = char_len * math.log2(len(_pwd))
-        return entropy
+        _pwd = self.generate(length)
+        _pwd = self.normalize(_pwd)
+        print(f"Generated Password: {_pwd}")
+        print(f"Entropy: {self.calc_entropy(length, _pwd)} bits")
+        return _pwd
 
 
 
@@ -92,6 +122,8 @@ if __name__ == "__main__":
     gc.add_argument('-C', '--no-clear', action='store_true', dest='clear',
                     help='Do not clear generated files (default)')
     parser.set_defaults(clear=False)
+    parser.set_defaults(length=512)
+    parser.set_defaults(exponentiation=9)
 
     args = parser.parse_args()
     LEN_FLAG = False
@@ -123,17 +155,17 @@ if __name__ == "__main__":
 
     for _ in range(args.iterations):
         print(f"Iteration: {_ + 1}")
-        _ = pw_gen.generate()
+        pw_gen.main(BIT_LEN)
         print()
 
-    print(pw_gen.help())
-    pw = pw_gen.generate()
-    print(pw)
-    print(type(pw))
-    # print(hex(pw))
-    print()
-    pw_utf8 = pw_gen.normalize(pw, "NFKC")
-    print(pw_utf8)
-    print(type(pw_utf8))
-    print(pw_utf8.hex())
-    print(type(pw_utf8.hex()))
+    if args.verbose:
+        pw_gen.help()
+
+        PW = pw_gen.generate()
+        print(PW)
+        print(type(PW))
+
+        print()
+        pw_utf8 = pw_gen.normalize(PW, "NFKC")
+        print(pw_utf8)
+        print(type(pw_utf8))

@@ -34,9 +34,9 @@ except ImportError as e:
     print(f"Error importing GenerateRandomNChar: {e}")
 
 try:
-    from file_io import FILEio
+    from file_io import FileIO
 except ImportError as e:
-    print(f"Error importing FILEio: {e}")
+    print(f"Error importing FileIO: {e}")
 
 __DEBUG_FLAG__ = False
 
@@ -160,8 +160,8 @@ class SHA256(SHACalc):
     def __init__(self):
         super().__init__()
         self.prev_hash = INIT_HASH.copy()
-        self.message = None
-        self.message_len = -1
+        self.message = None # in bytes
+        self.message_len = -1 # in bits
         self.hash = None
 
         self.message_block = []
@@ -192,27 +192,43 @@ class SHA256(SHACalc):
         self.message_len: 원본 비트 길이 l
         """
 
-        l = self.message_len
+        if isinstance(self.message, (bytes, bytearray)):
+            l = len(self.message)
+            self.message = bytearray(self.message)  # Ensure message is a bytearray
+            self.message += b'\x80'  # Append the bit '1' (0x80 in hex)
+            pad_zero_len = (56 - (l + 1) % 64) % 64
+            self.message += b'\x00' * pad_zero_len
 
-        # 1) k 계산: (l + 1 + k) ≡ 448 (mod 512)
-        k = (448 - (l + 1)) % 512
+            # Append the original message length in bits (64 bits)
+            self.message += self.message_len.to_bytes(8, byteorder='big')
+            words_be = np.frombuffer(self.message, dtype='>u4')
+            self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
+            self.block_n = self.message.size // 16
 
-        # 2) 패딩 비트 문자열 구성: 1비트 + k개의 0 + 64비트 길이
-        padded_bits = self.message + '1' + ('0' * k) + format(l, '064b')
-        # 총 길이는 512의 배수
+        elif isinstance(self.message, str):
+            l = self.message_len
+            # 1) k 계산: (l + 1 + k) ≡ 448 (mod 512)
+            k = (448 - (l + 1)) % 512
 
-        # 3) 비트 문자열 -> uint8 바이트
-        bits = np.frombuffer(padded_bits.encode('ascii'), dtype=np.uint8) - ord('0')
-        u8   = np.packbits(bits, bitorder='big')  # MSB-first로 압축
+            # 2) 패딩 비트 문자열 구성: 1비트 + k개의 0 + 64비트 길이
+            padded_bits = self.message.extend(b'1')  # 1비트 추가
+            padded_bits.extend(b'0' * k)
+            padded_bits.extend(int(l, 16).to_bytes(8, byteorder='big'))  # 길이 64비트 추가
 
-        # 4) 바이트 -> uint32 워드(빅엔디안)
-        assert (u8.size % 4) == 0
-        words_be = np.frombuffer(u8.tobytes(), dtype='>u4')  # shape: (#blocks*16,)
+            # 총 길이는 512의 배수
 
-        # 5) 상태에 저장
-        self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
-        self.block_n = words_be.size // 16                    # 512비트 블록 수
-        # breakpoint()
+            # 3) 비트 문자열 -> uint8 바이트
+            bits = np.frombuffer(padded_bits.encode('ascii'), dtype=np.uint8) - ord('0')
+            u8   = np.packbits(bits, bitorder='big')  # MSB-first로 압축
+
+            # 4) 바이트 -> uint32 워드(빅엔디안)
+            assert (u8.size % 4) == 0
+            words_be = np.frombuffer(u8.tobytes(), dtype='>u4')  # shape: (#blocks*16,)
+
+            # 5) 상태에 저장
+            self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
+            self.block_n = words_be.size // 16                    # 512비트 블록 수
+            # breakpoint()
 
     def parse(self):
         """
@@ -346,6 +362,7 @@ class SHA256(SHACalc):
         Generate the SHA-256 hash for the given message.
         """
         assert message is not None, "Message must be provided."
+        assert isinstance(message, (bytes, bytearray, str)), "Message must be bytes or bytearray."
         assert message_len > 0, "Message length must be positive."
 
         self.message = message # in binary string
@@ -375,10 +392,8 @@ class ValidateHash:
     A class to validate SHA-256 hashes.
     """
     def __init__(self):
-        self.correct_value = None
+        self._right_value = None
         self.implementation = SHA256()
-        self.message = None
-        self.message_len = -1
 
     def correct_hash(self, message, message_len):
         """
@@ -387,17 +402,8 @@ class ValidateHash:
         assert message is not None, "Message must be provided."
         assert message_len > 0, "Message length must be positive."
         h = hashlib.sha256()
-        self.message = message
-        self.message_len = message_len
-        h.update(self.message)
-        self.correct_value = h.hexdigest()
-        print(f"Correct SHA-256 Hash: \n{self.correct_value}")
-        for _i in range(0, len(self.correct_value), 8):
-            print(f"Chunk {_i // 8}: {self.correct_value[_i:_i + 8]}")
-        b = bytes.fromhex(self.correct_value)
-        out = np.frombuffer(b, dtype='>u4').astype(np.uint32, copy=True)
-        print(f"Correct HASH: \n{out}")
-        return out
+        h.update(message)
+        return h.hexdigest()
 
     def validate_hash(self, input_hash = None, message = None, message_len = -1):
         """
@@ -409,12 +415,18 @@ class ValidateHash:
             _right_value = self.correct_hash(message, message_len)
             test_hash = input_hash
         else:
-            _right_value = self.correct_hash(self.message, self.message_len)
-            test_hash = self.implementation.hashing(self.message, self.message_len)
+            raise ValueError("Input hash must be provided.")
+
+        print(f"Correct SHA-256 Hash: \n{_right_value}")
+        for _i in range(0, len(_right_value), 8):
+            print(f"Chunk {_i // 8}: {_right_value[_i:_i + 8]}")
+        b = bytes.fromhex(_right_value)
+        out = np.frombuffer(b, dtype='>u4').astype(np.uint32, copy=True)
+        print(f"Correct HASH: \n{out}")
 
         print(f"Generated hash: \n{test_hash}")
         for _i, _test in enumerate(test_hash):
-            if _test == _right_value[_i]:
+            if _test == out[_i]:
                 pass
             else:
                 print("Hash validation failed.")
@@ -477,38 +489,36 @@ if __name__ == "__main__":
         LENGTH = 2 ** EXP
     else:
         pass
+    if not args.message:
+        random_generator = GenerateRandom(args.clear, args.verbose)
+        setattr(random_generator, 'length', LENGTH)
+        byte_m = random_generator.generate_random_bits()
+    else:
+        random_generator = GenerateRandomNChar(args.clear, args.verbose)
+        byte_m = random_generator.main(LENGTH // 8)
 
-    random_generator = GenerateRandom(args.clear, args.verbose)
     sha256 = SHA256()
     validate_hash = ValidateHash()
 
-    # pylint: disable=invalid-name
-    rand_m = None
-    bin_m = None
-    hex_m = None
-    # pylint: enable=invalid-name
-
     if LENGTH is not None:
         for _ in range(args.iteration):
+            sha256.reset()
 
             print(f"Iteration: {_ + 1}")
-
-            setattr(random_generator, 'length', LENGTH)
-            byte_m = random_generator.generate_random_bits()
             result_hash = sha256.hashing(byte_m, len(byte_m) * 8)
 
             print("--------------Result--------------")
-            print(f"Input bits ({len(byte_m) * 8} bits): \n\\x{byte_m.hex()}\n")
+            print(f"Input bits ({len(byte_m) * 8} bits): \n{byte_m}\n")
             print("SHA-256 Hash: ")
             HEX_DIGEST = ''.join(f'{int(w):08x}' for w in result_hash)
             print(HEX_DIGEST)
             print("\n")
 
             print("--------------Validation--------------")
-            valid_message = bytes.fromhex(hex_m)
-            VALID = validate_hash.validate_hash(result_hash, valid_message, len(byte_m) * 8)
+            VALID = validate_hash.validate_hash(result_hash, byte_m, len(byte_m) * 8)
             print("Correct SHA-256 Hash: ")
-            print(f"Validation: {VALID}")
+            valid_message = "Failed" if not VALID else "Succeeded"
+            print(f"Validation: {valid_message}")
 
             if VALID:
                 print(f"Hash validation succeeded at iteration {_ + 1}.")
