@@ -37,13 +37,14 @@ class GenerateRandom(FileIO):
     """
     Generate a random number of specified bit length.
     """
-    def __init__(self, clear_flag = False, verbose_flag = True):
-        super().__init__()
+    def __init__(self, clear_flag = False, verbose_flag = True, main_flag = False):
+        super().__init__(main_flag, start_time=super().encode_timestamp())
         print(f"Flags - Clear: {clear_flag}, Verbose: {verbose_flag}\n")
         if clear_flag:
             print("Clearing generated files...")
             super().file_clean(clear_flag=clear_flag)
         self.__verbose__ = verbose_flag
+        self.ts = super().encode_timestamp()
 
     @staticmethod
     def bytes_to_hex_block(b: bytes, *, word_bytes: int = 2, line_bytes: int = 16,
@@ -88,25 +89,26 @@ class GenerateRandom(FileIO):
         print(' '.join(f'{x:08b}' for x in data))
         print()
 
-    def generate_random_bits(self, length=512):
+    def generate_random_bits(self, length=512) -> bytes:
         """
         Generate a random 512-bit number and return its hexadecimal and binary representations.
         """
-
+        timestamp = super().encode_timestamp()
         _n = randbits(length)
         _length = math.ceil(length / 8)
         bytes_n = _n.to_bytes(_length, byteorder='big', signed=False)
 
         assert len(bytes_n) == _length, "Binary length does not match specified length."
-        print(f"Binary length in Bits: \n{len(bytes_n) * 8}\n") # type: str
-        self.print_hex("Data in Hexadecimal", bytes_n)
 
         if self.__verbose__:
+            print(f"Generated {length}-bit random number.")
+            print(f"Generated at: {timestamp.decode('utf-8')}")
             self.print_bin("Data in Binary", bytes_n)
             print(f"Binary length in Bytes: \n{len(bytes_n)}\n") # type: str
+        self.print_hex(f"Data in Hexadecimal (len: {len(bytes_n)}bytes)", bytes_n)
 
         f_w, _ = self.file_io(f"random_{length}_bits.bin")
-        f_w((bytes_n, length))
+        f_w(bytes_n, length, ts=timestamp)
 
         return bytes_n
 
@@ -161,7 +163,7 @@ if __name__ == "__main__":
 
     assert BIT_LEN is not None, "Either length or exponentiation must be specified."
 
-    generator = GenerateRandom(args.clear, args.verbose)
+    generator = GenerateRandom(args.clear, args.verbose, main_flag=True)
 
     for _ in range(args.iterations):
         print(f"Iteration: {_ + 1}")

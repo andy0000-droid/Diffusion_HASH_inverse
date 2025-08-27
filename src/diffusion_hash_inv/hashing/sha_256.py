@@ -9,32 +9,45 @@ SHA-256 Implementation
 import hashlib
 import math
 import argparse
-import os
+import json
 import sys
 
 import numpy as np
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-util_path = os.path.join(project_root, "utils")
-if util_path not in os.sys.path:
-    sys.path.append(util_path)
+from pathlib import Path
+def get_project_root(marker_files=("pyproject.toml", ".git")) -> Path:
+    """
+    Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
+    marker_files 중 하나라도 있으면 거기를 루트로 간주.
+    """
+    current = Path.cwd().resolve()  # notebook에서는 cwd 기준
+    for parent in [current, *current.parents]:
+        if any((parent / marker).exists() for marker in marker_files):
+            return parent
+    raise FileNotFoundError("프로젝트 루트를 찾을 수 없습니다.")
+def add_src_to_path():
+    """프로젝트 루트 밑의 src/를 sys.path에 자동 추가"""
+    root = get_project_root()
+    src = root / "src"
 
-gen_path = os.path.join(project_root, "generator")
-if gen_path not in os.sys.path:
-    sys.path.append(gen_path)
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    return src
+
+add_src_to_path()
 
 try:
-    from random_n_bits import GenerateRandom
+    from diffusion_hash_inv.generator.random_n_bits import GenerateRandom
 except ImportError as e:
     print(f"Error importing GenerateRandom: {e}")
 
 try:
-    from random_n_char import GenerateRandomNChar
+    from diffusion_hash_inv.generator.random_n_char import GenerateRandomNChar
 except ImportError as e:
     print(f"Error importing GenerateRandomNChar: {e}")
 
 try:
-    from file_io import FileIO
+    from diffusion_hash_inv.utils import FileIO
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
@@ -280,11 +293,13 @@ class SHA256(SHACalc):
 
         return w_tmp
 
-    def step2(self, _):
+    def step2(self, in_hash):
         """
         Step 2: Initialize working variables.
         """
         print("Step 2: Initialize working variables")
+        a, b, c, d, e, f, g, h = in_hash
+        return [a, b, c, d, e, f, g, h]
 
     def step3(self, w, in_hash):
         """
@@ -314,12 +329,13 @@ class SHA256(SHACalc):
 
         print("Step 4: Finalize the hash value")
         a,b,c,d,e,f,g,h = work
-        return [
+        res = [
             self.add32(a, in_hash[0]), self.add32(b, in_hash[1]),
             self.add32(c, in_hash[2]), self.add32(d, in_hash[3]),
             self.add32(e, in_hash[4]), self.add32(f, in_hash[5]),
             self.add32(g, in_hash[6]), self.add32(h, in_hash[7]),
         ]
+        return res
 
     def compute_hash(self):
         """
@@ -332,7 +348,7 @@ class SHA256(SHACalc):
                 print(f"\nProcessing {_i + 1} block of {self.block_n} blocks ({_i / self.block_n * 100:.2f}%)")
                 # pylint: enable=line-too-long
                 w = self.step1(_i)
-                self.step2(self.hash)
+                self.prev_hash = self.step2(self.prev_hash)
                 out = self.step3(w, self.prev_hash)
                 self.hash = self.step4(out, self.prev_hash)
                 self.prev_hash = self.hash
@@ -344,7 +360,6 @@ class SHA256(SHACalc):
         except Exception as e:
             print(f"Error during hash computation: {e}")
             return False
-
         # pylint: enable=broad-exception-caught
 
     def finalize(self):
@@ -435,14 +450,50 @@ class ValidateHash:
         print("Hash validation successful.")
         return True
 
-def main(length, iteration=1, message=None):
+# pylint: disable=too-many-locals
+def main(*flags: bool, length: int = 512, iteration: int = 1):
     """
     Main function to execute the SHA-256 hash generation and validation.
     """
     assert length > 0, "Length must be positive."
     assert iteration > 0, "Iteration count must be positive."
-    assert message is not None, "Message must be provided."
+    m_flag, v_flag, c_flag = flags
+    file_io = FileIO()
+    sha256 = SHA256()
+    validate_hash = ValidateHash()
+    random_generator = GenerateRandom(c_flag, v_flag)
+    random_generator = GenerateRandomNChar(c_flag, v_flag)
+    f_w, _ = file_io.file_io("sha256_hashes.json")
 
+    for _ in range(iteration):
+        sha256.reset()
+        print(f"Iteration: {_ + 1}")
+        if not m_flag:
+            byte_m = random_generator.generate_random_bits(length)
+        else:
+            byte_m = random_generator.main(length // 8)
+
+        print(f"Iteration: {_ + 1}")
+        result_hash = sha256.hashing(byte_m, len(byte_m) * 8)
+
+        print(f"----------------Result for iteration ({_ + 1})----------------")
+        print(f"Input bits ({len(byte_m) * 8} bits): \n{byte_m}\n")
+        print("SHA-256 Hash: ")
+        hex_digest = ''.join(f'{int(w):08x}' for w in result_hash)
+        print(hex_digest)
+        print("\n")
+
+        print(f"--------------Validation for iteration ({_ + 1})--------------")
+        valid = validate_hash.validate_hash(result_hash, byte_m, len(byte_m) * 8)
+        print("Correct SHA-256 Hash: ")
+        valid_message = "Failed" if not valid else "Succeeded"
+        print(f"Validation: {valid_message}")
+
+        if valid:
+            print(f"Hash validation succeeded at iteration {_ + 1}.")
+            print("===================================\n")
+        else:
+            raise RuntimeError(f"Hash validation failed at iteration {_ + 1}.")
 
 
 if __name__ == "__main__":
@@ -489,46 +540,5 @@ if __name__ == "__main__":
         LENGTH = 2 ** EXP
     else:
         pass
-    if not args.message:
-        random_generator = GenerateRandom(args.clear, args.verbose)
-        setattr(random_generator, 'length', LENGTH)
-        byte_m = random_generator.generate_random_bits()
-    else:
-        random_generator = GenerateRandomNChar(args.clear, args.verbose)
-        byte_m = random_generator.main(LENGTH // 8)
 
-    sha256 = SHA256()
-    validate_hash = ValidateHash()
-
-    if LENGTH is not None:
-        for _ in range(args.iteration):
-            sha256.reset()
-
-            print(f"Iteration: {_ + 1}")
-            result_hash = sha256.hashing(byte_m, len(byte_m) * 8)
-
-            print("--------------Result--------------")
-            print(f"Input bits ({len(byte_m) * 8} bits): \n{byte_m}\n")
-            print("SHA-256 Hash: ")
-            HEX_DIGEST = ''.join(f'{int(w):08x}' for w in result_hash)
-            print(HEX_DIGEST)
-            print("\n")
-
-            print("--------------Validation--------------")
-            VALID = validate_hash.validate_hash(result_hash, byte_m, len(byte_m) * 8)
-            print("Correct SHA-256 Hash: ")
-            valid_message = "Failed" if not VALID else "Succeeded"
-            print(f"Validation: {valid_message}")
-
-            if VALID:
-                print(f"Hash validation succeeded at iteration {_ + 1}.")
-            else:
-                raise RuntimeError(f"Hash validation failed at iteration {_ + 1}.")
-
-    else:
-        sha256 = SHA256()
-        setattr(random_generator, 'length', 256)
-        *data_256, len_rand_256 = random_generator.generate_random_bits()
-        rand_256, bin_256, hex_256 = data_256
-        print(f"256 bits: {rand_256}")
-        sha256.hashing(bin_256, len_rand_256)
+    main(args.message, args.verbose, args.clear, length=LENGTH, iteration=args.iteration)

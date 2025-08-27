@@ -40,13 +40,14 @@ class GenerateRandomNChar(FileIO):
     """
     Generate a random string of N characters.
     """
-    def __init__(self, clear_flag=False, verbose_flag=True):
-        super().__init__()
+    def __init__(self, clear_flag=False, verbose_flag=True, main_flag=False):
+        super().__init__(main_flag, start_time=super().encode_timestamp())
         print(f"Flags - Clear: {clear_flag}, Verbose: {verbose_flag}\n")
         if clear_flag:
             print("Clearing generated files...")
             super().file_clean(clear_flag=clear_flag)
         self.__verbose__ = verbose_flag
+        self.ts: bytes = super().encode_timestamp()
 
         GenerateRandomNChar.alphabet = string.ascii_letters \
             + string.digits + string.punctuation + " "
@@ -90,10 +91,15 @@ class GenerateRandomNChar(FileIO):
         """
         Main function to generate random strings and display their entropy.
         """
+        timestamp = super().encode_timestamp()
         _pwd = self.generate(length)
         _pwd = self.normalize(_pwd)
         print(f"Generated Password: {_pwd}")
         print(f"Entropy: {self.calc_entropy(length, _pwd)} bits")
+        if self.__verbose__:
+            self.help()
+        f_w, _ = self.file_io(f"random_{length * 8}_char.char")
+        f_w(_pwd, length * 8, ts=timestamp)
         return _pwd
 
 
