@@ -5,16 +5,19 @@ SHA-256 Implementation
 # TODO
 # Add file output for the generated hashes
 # Add file output for intermediate values while processing
+# Time logging for performance measurement
 
 import hashlib
 import math
 import argparse
 import json
 import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from functools import wraps
 
 import numpy as np
 
-from pathlib import Path
 def get_project_root(marker_files=("pyproject.toml", ".git")) -> Path:
     """
     Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
@@ -51,9 +54,60 @@ try:
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
-__DEBUG_FLAG__ = False
+@dataclass
+class OutputFormat:
+    """
+    Class to handle output formatting for SHA-256 hash results.
+    """
+    func_name: str
+    l1_data: list = field(default_factory=list)
+    l2_data: list = field(default_factory=list)
+    l3_data: list = field(default_factory=list)
 
-# Constants
+    def b2hex(self):
+        """
+        Convert the message bytes to a hexadecimal string.
+        """
+        assert self.message is not None, "Message data is not set."
+        return self.message.hex()
+
+    def save_json(self):
+        """
+        Save the hash results to a JSON file.
+        """
+        assert self.message is not None, "Message data is not set."
+        assert self.l1_data is not None, "L1 data is not set."
+        assert self.l2_data is not None, "L2 data is not set."
+        assert self.l3_data is not None, "L3 data is not set."
+
+        output = {
+            "message": self.message.hex(),
+            "message_len": self.message_len,
+            "l1_data": self.l1_data,
+            "l2_data": self.l2_data,
+            "l3_data": self.l3_data,
+        }
+        return output
+
+def json_logger(func: callable):
+    """
+    JSON logger decorator for functions.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"{func.__name__} called")
+        result = func(*args, **kwargs)
+        log_data = {
+            "function": func.__name__,
+            "result": result
+        }
+        breakpoint()
+        print(json.dumps(log_data))
+        return result
+
+    return wrapper    
+
+# Constants start
 # SHA-256 use sixty-four constant 32-bit words
 K = np.array([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -71,6 +125,9 @@ INIT_HASH = np.array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
 ], dtype=np.uint32)
+# Constants end
+
+# Internal Operations of the SHA-256 algorithm start
 class SHACalc:
     """
     Base class for SHA hash calculations.
@@ -165,7 +222,9 @@ class SHACalc:
 
         ret = (self.rotr(x, 6) ^ self.rotr(x, 11) ^ self.rotr(x, 25)) & self.mask
         return ret
+# Internal Operations of the SHA-256 algorithm end
 
+# Implementation of the SHA-256 algorithm start
 class SHA256(SHACalc):
     """
     Implementation of the SHA-256 hash function.
@@ -205,43 +264,17 @@ class SHA256(SHACalc):
         self.message_len: 원본 비트 길이 l
         """
 
-        if isinstance(self.message, (bytes, bytearray)):
-            l = len(self.message)
-            self.message = bytearray(self.message)  # Ensure message is a bytearray
-            self.message += b'\x80'  # Append the bit '1' (0x80 in hex)
-            pad_zero_len = (56 - (l + 1) % 64) % 64
-            self.message += b'\x00' * pad_zero_len
+        l = len(self.message)
+        self.message = bytearray(self.message)  # Ensure message is a bytearray
+        self.message += b'\x80'  # Append the bit '1' (0x80 in hex)
+        pad_zero_len = (56 - (l + 1) % 64) % 64
+        self.message += b'\x00' * pad_zero_len
 
-            # Append the original message length in bits (64 bits)
-            self.message += self.message_len.to_bytes(8, byteorder='big')
-            words_be = np.frombuffer(self.message, dtype='>u4')
-            self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
-            self.block_n = self.message.size // 16
-
-        elif isinstance(self.message, str):
-            l = self.message_len
-            # 1) k 계산: (l + 1 + k) ≡ 448 (mod 512)
-            k = (448 - (l + 1)) % 512
-
-            # 2) 패딩 비트 문자열 구성: 1비트 + k개의 0 + 64비트 길이
-            padded_bits = self.message.extend(b'1')  # 1비트 추가
-            padded_bits.extend(b'0' * k)
-            padded_bits.extend(int(l, 16).to_bytes(8, byteorder='big'))  # 길이 64비트 추가
-
-            # 총 길이는 512의 배수
-
-            # 3) 비트 문자열 -> uint8 바이트
-            bits = np.frombuffer(padded_bits.encode('ascii'), dtype=np.uint8) - ord('0')
-            u8   = np.packbits(bits, bitorder='big')  # MSB-first로 압축
-
-            # 4) 바이트 -> uint32 워드(빅엔디안)
-            assert (u8.size % 4) == 0
-            words_be = np.frombuffer(u8.tobytes(), dtype='>u4')  # shape: (#blocks*16,)
-
-            # 5) 상태에 저장
-            self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
-            self.block_n = words_be.size // 16                    # 512비트 블록 수
-            # breakpoint()
+        # Append the original message length in bits (64 bits)
+        self.message += self.message_len.to_bytes(8, byteorder='big')
+        words_be = np.frombuffer(self.message, dtype='>u4')
+        self.message = words_be.astype(np.uint32, copy=True)  # 워드 배열
+        self.block_n = self.message.size // 16
 
     def parse(self):
         """
@@ -250,6 +283,7 @@ class SHA256(SHACalc):
         for i in range(self.block_n):
             self.message_block.append(self.message[i * 16:(i + 1) * 16])
 
+    @json_logger
     def preprocess(self):
         """
         Padding & Parsing for SHA-256.
@@ -272,7 +306,7 @@ class SHA256(SHACalc):
         print()
         # breakpoint()
         return True
-
+    @json_logger
     def step1(self, iteration):
         """
         Step 1: Message Schedule Preparation
@@ -293,6 +327,7 @@ class SHA256(SHACalc):
 
         return w_tmp
 
+    @json_logger
     def step2(self, in_hash):
         """
         Step 2: Initialize working variables.
@@ -301,6 +336,7 @@ class SHA256(SHACalc):
         a, b, c, d, e, f, g, h = in_hash
         return [a, b, c, d, e, f, g, h]
 
+    @json_logger
     def step3(self, w, in_hash):
         """
         Step 3: Main compression function loop.
@@ -322,6 +358,7 @@ class SHA256(SHACalc):
         # breakpoint()
         return [a, b, c, d, e, f, g, h]
 
+    @json_logger
     def step4(self, work, in_hash):
         """
         Step 4: Finalize the hash value.
@@ -401,7 +438,9 @@ class SHA256(SHACalc):
         if not success:
             raise RuntimeError("Hash computation failed.")
         return None
+# Implementation of the SHA-256 algorithm end
 
+# Implementation of the SHA-256 hash validation start
 class ValidateHash:
     """
     A class to validate SHA-256 hashes.
@@ -449,6 +488,7 @@ class ValidateHash:
 
         print("Hash validation successful.")
         return True
+# Implementation of the SHA-256 hash validation end
 
 # pylint: disable=too-many-locals
 def main(*flags: bool, length: int = 512, iteration: int = 1):

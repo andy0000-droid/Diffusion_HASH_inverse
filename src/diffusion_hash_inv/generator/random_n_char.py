@@ -10,6 +10,7 @@ import string
 import math
 import sys
 from pathlib import Path
+
 def get_project_root(marker_files=("pyproject.toml", ".git")) -> Path:
     """
     Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
