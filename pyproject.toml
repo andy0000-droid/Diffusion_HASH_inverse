@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "diffusion-hash-inverse"
 version = "0.1.0"
@@ -8,15 +12,23 @@ dependencies = ["numpy", "pytest"]
 readme = "README.md"
 
 [project.scripts]
-diffhash = "diffusion_hash_inverse.cli:main"
+# 패키지 경로를 실제 디렉터리명과 일치시킴
+diffhash = "diffusion_hash_inv.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.ruff]
-target-version = "py39"
+# 사용하는 파이썬에 맞추세요 (예: 3.12 사용 중이면 py312 권장)
+target-version = "py312"
 line-length = 100
