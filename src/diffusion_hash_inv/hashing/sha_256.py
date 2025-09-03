@@ -228,6 +228,9 @@ class SHA256(SHACalc):
 
         self.pad()
         self.parse()
+
+        block_dict = {}
+
         print("Preprocessing complete.")
         if self.verbose_flag:
             print("Message blocks: ")
@@ -239,7 +242,10 @@ class SHA256(SHACalc):
                     print(f"\\x{OutputFormat.to_hex32_scalar(word)}", end=' ')
                 print()
             print()
-        # breakpoint()
+
+        for _i, block in enumerate(self.message_block):
+            block_dict[f"Block {_i}"] = block
+        self.res_out.add_preprocess(block_dict)
         return True
 
     def step1(self, iteration):
