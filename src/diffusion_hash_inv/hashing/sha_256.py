@@ -10,34 +10,8 @@ SHA-256 Implementation
 import hashlib
 import math
 import argparse
-import json
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from functools import wraps
 
 import numpy as np
-
-def get_project_root(marker_files=("pyproject.toml", ".git")) -> Path:
-    """
-    Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
-    marker_files 중 하나라도 있으면 거기를 루트로 간주.
-    """
-    current = Path.cwd().resolve()  # notebook에서는 cwd 기준
-    for parent in [current, *current.parents]:
-        if any((parent / marker).exists() for marker in marker_files):
-            return parent
-    raise FileNotFoundError("프로젝트 루트를 찾을 수 없습니다.")
-def add_src_to_path():
-    """프로젝트 루트 밑의 src/를 sys.path에 자동 추가"""
-    root = get_project_root()
-    src = root / "src"
-
-    if str(src) not in sys.path:
-        sys.path.insert(0, str(src))
-    return src
-
-add_src_to_path()
 
 try:
     from diffusion_hash_inv.generator.random_n_bits import GenerateRandom
@@ -54,58 +28,11 @@ try:
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
-@dataclass
-class OutputFormat:
-    """
-    Class to handle output formatting for SHA-256 hash results.
-    """
-    func_name: str
-    l1_data: list = field(default_factory=list)
-    l2_data: list = field(default_factory=list)
-    l3_data: list = field(default_factory=list)
+try:
+    from diffusion_hash_inv.utils import OutputFormat
+except ImportError as e:
+    print(f"Error importing OuputFormat: {e}")
 
-    def b2hex(self):
-        """
-        Convert the message bytes to a hexadecimal string.
-        """
-        assert self.message is not None, "Message data is not set."
-        return self.message.hex()
-
-    def save_json(self):
-        """
-        Save the hash results to a JSON file.
-        """
-        assert self.message is not None, "Message data is not set."
-        assert self.l1_data is not None, "L1 data is not set."
-        assert self.l2_data is not None, "L2 data is not set."
-        assert self.l3_data is not None, "L3 data is not set."
-
-        output = {
-            "message": self.message.hex(),
-            "message_len": self.message_len,
-            "l1_data": self.l1_data,
-            "l2_data": self.l2_data,
-            "l3_data": self.l3_data,
-        }
-        return output
-
-def json_logger(func: callable):
-    """
-    JSON logger decorator for functions.
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        print(f"{func.__name__} called")
-        result = func(*args, **kwargs)
-        log_data = {
-            "function": func.__name__,
-            "result": result
-        }
-        breakpoint()
-        print(json.dumps(log_data))
-        return result
-
-    return wrapper    
 
 # Constants start
 # SHA-256 use sixty-four constant 32-bit words
@@ -229,8 +156,10 @@ class SHA256(SHACalc):
     """
     Implementation of the SHA-256 hash function.
     """
-    def __init__(self):
+    def __init__(self, is_verbose = True, output_format = None):
         super().__init__()
+        SHA256.verbose_flag = is_verbose
+
         self.prev_hash = INIT_HASH.copy()
         self.message = None # in bytes
         self.message_len = -1 # in bits
@@ -239,6 +168,11 @@ class SHA256(SHACalc):
         self.message_block = []
 
         self.block_n = math.ceil((self.message_len + 1 + 64) / self.block_size)
+        # assert output_format is not None, "JSON Formatter is needed"
+        if output_format is not None:
+            self.res_out = output_format
+        else:
+            self.res_out = OutputFormat()
 
     def reset(self):
         """각 해시 계산 시작 시 내부 상태 초기화"""
@@ -283,7 +217,6 @@ class SHA256(SHACalc):
         for i in range(self.block_n):
             self.message_block.append(self.message[i * 16:(i + 1) * 16])
 
-    @json_logger
     def preprocess(self):
         """
         Padding & Parsing for SHA-256.
@@ -295,18 +228,20 @@ class SHA256(SHACalc):
 
         self.pad()
         self.parse()
-        print("Preprocessing complete. Message blocks: ")
-        for i, block in enumerate(self.message_block):
-            print(f"Block {i}:")
-            for j, word in enumerate(block):
-                if j % 8 == 0 and j != 0:
-                    print()
-                print(f"\\x{hex(word):010}", end=' ')
+        print("Preprocessing complete.")
+        if self.verbose_flag:
+            print("Message blocks: ")
+            for i, block in enumerate(self.message_block):
+                print(f"Block {i}:")
+                for j, word in enumerate(block):
+                    if j % 8 == 0 and j != 0:
+                        print()
+                    print(f"\\x{OutputFormat.to_hex32_scalar(word)}", end=' ')
+                print()
             print()
-        print()
         # breakpoint()
         return True
-    @json_logger
+
     def step1(self, iteration):
         """
         Step 1: Message Schedule Preparation
@@ -324,19 +259,27 @@ class SHA256(SHACalc):
                 wt_16 = w_tmp[_i - 16]
                 _tmp = self.add32(s1, wt_7, s0, wt_16)
                 w_tmp.append(_tmp)
-
+        if self.verbose_flag:
+            print(w_tmp)
+        self.res_out.add_step1(w_tmp)
         return w_tmp
 
-    @json_logger
     def step2(self, in_hash):
         """
         Step 2: Initialize working variables.
         """
         print("Step 2: Initialize working variables")
         a, b, c, d, e, f, g, h = in_hash
-        return [a, b, c, d, e, f, g, h]
+        ret = [a, b, c, d, e, f, g, h]
+        if self.verbose_flag:
+            print(ret)
+        ret_dict = {}
+        for _i, val in enumerate(ret):
+            ret_dict[chr(ord('a') + _i)] = OutputFormat.to_hex32_scalar(val)
+        self.res_out.add_step2(ret_dict)
+        return ret
 
-    @json_logger
+    # pylint: disable=too-many-locals
     def step3(self, w, in_hash):
         """
         Step 3: Main compression function loop.
@@ -355,10 +298,18 @@ class SHA256(SHACalc):
             c = b
             b = a
             a = self.add32(t1, t2)
-        # breakpoint()
-        return [a, b, c, d, e, f, g, h]
+            ret_dict = {"a": a, "b": b, "c": c, "d": d, "e": e,
+                        "f": f, "g": g, "h": h, "t1": t1, "t2": t2}
 
-    @json_logger
+            for _k, _v in ret_dict.items():
+                ret_dict[_k] = OutputFormat.to_hex32_scalar(_v)
+
+            self.res_out.add_step3_round(_i, ret_dict)
+            #self.res_out.add_step3_round(_i, )
+
+        return [a, b, c, d, e, f, g, h]
+    # pylint: enable=too-many-locals
+
     def step4(self, work, in_hash):
         """
         Step 4: Finalize the hash value.
@@ -372,6 +323,11 @@ class SHA256(SHACalc):
             self.add32(e, in_hash[4]), self.add32(f, in_hash[5]),
             self.add32(g, in_hash[6]), self.add32(h, in_hash[7]),
         ]
+
+        ret_dict = {}
+        for _i, val in enumerate(res):
+            ret_dict[chr(ord('a') + _i)] = OutputFormat.to_hex32_scalar(val)
+        self.res_out.add_step4(ret_dict)
         return res
 
     def compute_hash(self):
@@ -389,6 +345,7 @@ class SHA256(SHACalc):
                 out = self.step3(w, self.prev_hash)
                 self.hash = self.step4(out, self.prev_hash)
                 self.prev_hash = self.hash
+                self.res_out.add_round(_i)
 
             # breakpoint()
             return True
@@ -414,7 +371,7 @@ class SHA256(SHACalc):
         Generate the SHA-256 hash for the given message.
         """
         assert message is not None, "Message must be provided."
-        assert isinstance(message, (bytes, bytearray, str)), "Message must be bytes or bytearray."
+        assert isinstance(message, (bytes, bytearray)), "Message must be bytes or bytearray."
         assert message_len > 0, "Message length must be positive."
 
         self.message = message # in binary string
@@ -422,7 +379,6 @@ class SHA256(SHACalc):
 
         preprocess_success = False
         compute_success = False
-        success = False
 
         preprocess_success = self.preprocess()
         print("Preprocessing successful")
@@ -431,13 +387,10 @@ class SHA256(SHACalc):
         print("Computation successful")
 
         if preprocess_success and compute_success:
-            success = True
             result = self.finalize()
             return result
 
-        if not success:
-            raise RuntimeError("Hash computation failed.")
-        return None
+        raise RuntimeError("Hash computation failed.")
 # Implementation of the SHA-256 algorithm end
 
 # Implementation of the SHA-256 hash validation start
@@ -445,9 +398,11 @@ class ValidateHash:
     """
     A class to validate SHA-256 hashes.
     """
-    def __init__(self):
+    def __init__(self, is_verbose, is_message):
         self._right_value = None
-        self.implementation = SHA256()
+        self.implementation = SHA256(is_verbose=is_verbose)
+        ValidateHash.verbose_flag = is_verbose
+        self.m_flag = is_message
 
     def correct_hash(self, message, message_len):
         """
@@ -459,27 +414,36 @@ class ValidateHash:
         h.update(message)
         return h.hexdigest()
 
-    def validate_hash(self, input_hash = None, message = None, message_len = -1):
+    def validate_hash(self, test_hash = None, message = None, message_len = -1, valid_hash = None):
         """
         Validate the SHA-256 hash of the given message.
         """
 
-        print(f"Message: \n{message}")
-        if input_hash is not None:
-            _right_value = self.correct_hash(message, message_len)
-            test_hash = input_hash
+        _input = message if not self.m_flag else message.decode("UTF-8")
+        print(f"Input ({len(message) * 8} bits): \n{_input}\n")
+        if test_hash is not None:
+            if valid_hash is None:
+                _right_value = self.correct_hash(message, message_len)
+            else:
+                _right_value = valid_hash
+            _test_hash = test_hash
         else:
             raise ValueError("Input hash must be provided.")
 
         print(f"Correct SHA-256 Hash: \n{_right_value}")
-        for _i in range(0, len(_right_value), 8):
-            print(f"Chunk {_i // 8}: {_right_value[_i:_i + 8]}")
+        if self.verbose_flag:
+            for _i in range(0, len(_right_value), 8):
+                print(f"Chunk {_i // 8}: {_right_value[_i:_i + 8]}")
         b = bytes.fromhex(_right_value)
         out = np.frombuffer(b, dtype='>u4').astype(np.uint32, copy=True)
-        print(f"Correct HASH: \n{out}")
+        if self.verbose_flag:
+            print()
+            print("In Byte representation")
+            print(f"Correct HASH: \n{out}")
 
-        print(f"Generated hash: \n{test_hash}")
-        for _i, _test in enumerate(test_hash):
+            print(f"Generated hash: \n{_test_hash}")
+
+        for _i, _test in enumerate(_test_hash):
             if _test == out[_i]:
                 pass
             else:
@@ -499,42 +463,58 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
     assert iteration > 0, "Iteration count must be positive."
     m_flag, v_flag, c_flag = flags
     file_io = FileIO()
-    sha256 = SHA256()
-    validate_hash = ValidateHash()
-    random_generator = GenerateRandom(c_flag, v_flag)
-    random_generator = GenerateRandomNChar(c_flag, v_flag)
-    f_w, _ = file_io.file_io("sha256_hashes.json")
+    formatter = OutputFormat()
+    sha256 = SHA256(output_format=formatter)
+    validate_hash = ValidateHash(v_flag, m_flag)
+    _iter = iteration
+    timestamp = file_io.encode_timestamp().decode("UTF-8")
+    print(timestamp)
 
-    for _ in range(iteration):
+    for _i in range(_iter):
         sha256.reset()
-        print(f"Iteration: {_ + 1}")
+        print(f"Iteration: {_i + 1}")
         if not m_flag:
-            byte_m = random_generator.generate_random_bits(length)
+            rand_bits = GenerateRandom(c_flag, v_flag)
+            byte_m = rand_bits.generate_random_bits(length)
         else:
-            byte_m = random_generator.main(length // 8)
+            rand_char = GenerateRandomNChar(c_flag, v_flag)
+            byte_m = rand_char.main(length // 8)
+        c_flag = False
 
-        print(f"Iteration: {_ + 1}")
+        json_writter, _ = file_io.file_io(f"sha256_{timestamp[:19]}_{_i}.json")
+        entropy = rand_char.calc_entropy(len(byte_m), byte_m)
+        formatter.set_metadata(len(byte_m)*8, timestamp, 0, entropy)
+        formatter.set_message(byte_m, m_flag)
+
         result_hash = sha256.hashing(byte_m, len(byte_m) * 8)
 
-        print(f"----------------Result for iteration ({_ + 1})----------------")
-        print(f"Input bits ({len(byte_m) * 8} bits): \n{byte_m}\n")
-        print("SHA-256 Hash: ")
-        hex_digest = ''.join(f'{int(w):08x}' for w in result_hash)
+        print(f"----------------Result for iteration ({_i + 1})----------------")
+        _input = byte_m if not m_flag else byte_m.decode("UTF-8")
+        print(f"Input ({len(byte_m) * 8} bits): \n{_input}\n")
+        # input_digest = ''.join(f"{int(x):02x}"for x in byte_m)
+        # print(f"{input_digest}")
+        print("Generated SHA-256 Hash: ")
+        hex_digest = OutputFormat.to_hex32_concat(result_hash)
         print(hex_digest)
         print("\n")
 
-        print(f"--------------Validation for iteration ({_ + 1})--------------")
-        valid = validate_hash.validate_hash(result_hash, byte_m, len(byte_m) * 8)
-        print("Correct SHA-256 Hash: ")
-        valid_message = "Failed" if not valid else "Succeeded"
+        print(f"--------------Validation for iteration ({_i + 1})--------------")
+        right_hash = validate_hash.correct_hash(byte_m, len(byte_m) * 8)
+        valid = validate_hash.validate_hash(result_hash, byte_m, len(byte_m) * 8, right_hash)
+
+        print()
+        print("--------------Validation result--------------")
+        valid_message = "Fail" if not valid else "Success"
         print(f"Validation: {valid_message}")
 
         if valid:
-            print(f"Hash validation succeeded at iteration {_ + 1}.")
+            print(f"Hash validation succeeded at iteration {_i + 1}.\n")
             print("===================================\n")
+            formatter.set_hashes(result_hash, right_hash)
+            json_writter(formatter.dumps())
         else:
-            raise RuntimeError(f"Hash validation failed at iteration {_ + 1}.")
-
+            raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
+# pylint enable=too-many-locals
 
 if __name__ == "__main__":
 
@@ -567,18 +547,18 @@ if __name__ == "__main__":
     gc.add_argument('-C', '--no-clear', action='store_true', dest='clear',
                     help='Do not clear generated files (default)')
     parser.set_defaults(clear=False)
-    args = parser.parse_args()
+    _args = parser.parse_args()
 
     LENGTH = None
-    if hasattr(args, 'length'):
-        LENGTH = args.length
+    if hasattr(_args, 'length'):
+        LENGTH = _args.length
     else:
         pass
 
-    if hasattr(args, 'exponentiation'):
-        EXP = args.exponentiation
+    if hasattr(_args, 'exponentiation'):
+        EXP = _args.exponentiation
         LENGTH = 2 ** EXP
     else:
         pass
 
-    main(args.message, args.verbose, args.clear, length=LENGTH, iteration=args.iteration)
+    main(_args.message, _args.verbose, _args.clear, length=LENGTH, iteration=_args.iteration)
